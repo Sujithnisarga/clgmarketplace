@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat — CollegeMarket</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav class="navbar" id="navbar"></nav>
+  <div class="container" style="padding-top:2rem;padding-bottom:3rem">
+    <div style="display:grid;grid-template-columns:280px 1fr;gap:1.5rem;height:calc(100vh - 140px)">
+      <!-- Sidebar: chat partners -->
+      <div class="card" style="padding:0;overflow-y:auto">
+        <div style="padding:1rem;border-bottom:1px solid var(--border);font-weight:700">Messages</div>
+        <div id="partners-list"></div>
+      </div>
+      <!-- Chat window -->
+      <div class="card" style="padding:0;display:flex;flex-direction:column">
+        <div id="chat-header" style="padding:1rem;border-bottom:1px solid var(--border);font-weight:700">Select a conversation</div>
+        <div class="chat-messages" id="chat-messages"></div>
+        <div style="padding:1rem;border-top:1px solid var(--border);display:flex;gap:0.75rem" id="chat-input-area" style="display:none">
+          <input type="text" id="msg-input" class="form-control" placeholder="Type a message..." onkeydown="if(event.key==='Enter')sendMsg()">
+          <button class="btn btn-primary" onclick="sendMsg()">Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+  <script src="/js/app.js?v=2"></script>
+  <script>
+    if (!requireAuth()) {}
+    renderNavbar();
+
+    const me = getUser();
+    const params = new URLSearchParams(location.search);
+    let activePartnerId = params.get('userId') ? parseInt(params.get('userId')) : null;
+    const itemId = params.get('itemId');
+    let stompClient = null;
+
+    async function loadPartners() {
+      try {
+        const partners = await apiFetch('/chat/partners');
+        const list = document.getElementById('partners-list');
+        if (!partners.length && !activePartnerId) {
+          list.innerHTML = '<div style="padding:1rem;color:var(--text-muted);font-size:0.9rem">No conversations yet</div>';
+          return;
+        }
+        // If activePartnerId not in list, fetch their info
+        let allPartners = [...partners];
+        if (activePartnerId && !partners.find(p => p.id == activePartnerId)) {
+          try {
+            const profile = await apiFetch(`/users/${activePartnerId}/profile`);
+            allPartners = [profile.user, ...allPartners];
+          } catch {}
+        }
+        list.innerHTML = allPartners.map(p => `
+          <div onclick="openConversation(${p.id}, '${p.name}')"
+               style="padding:0.85rem 1rem;cursor:pointer;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:0.75rem;background:${activePartnerId==p.id?'var(--input-bg)':'transparent'}"
+               id="partner-${p.id}">
+            <div style="width:36px;height:36px;border-radius:50%;background:var(--primary);display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0">${p.name[0]}</div>
+            <div style="font-weight:500;font-size:0.9rem">${p.name}</div>
+          </div>`).join('');
+
+        if (activePartnerId) {
+          const p = allPartners.find(p => p.id == activePartnerId);
+          if (p) openConversation(p.id, p.name);
+        }
+      } catch (e) { showToast('Error', e.message, 'error'); }
+    }
+
+    async function openConversation(partnerId, partnerName) {
+      activePartnerId = partnerId;
+      document.querySelectorAll('[id^="partner-"]').forEach(el => el.style.background = 'transparent');
+      const el = document.getElementById(`partner-${partnerId}`);
+      if (el) el.style.background = 'var(--input-bg)';
+
+      document.getElementById('chat-header').textContent = partnerName;
+      document.getElementById('chat-input-area').style.display = 'flex';
+
+      try {
+        const msgs = await apiFetch(`/chat/conversation/${partnerId}`);
+        renderMessages(msgs);
+      } catch (e) { showToast('Error', e.message, 'error'); }
+    }
+
+    function renderMessages(msgs) {
+      const container = document.getElementById('chat-messages');
+      container.innerHTML = msgs.map(m => {
+        const isMine = m.sender.id == me.id;
+        return `<div style="display:flex;flex-direction:column;align-items:${isMine?'flex-end':'flex-start'}">
+          <div class="chat-bubble ${isMine?'sent':'received'}">${m.content}</div>
+          <div class="chat-time" style="align-self:${isMine?'flex-end':'flex-start'}">${new Date(m.createdAt).toLocaleTimeString()}</div>
+        </div>`;
+      }).join('');
+      container.scrollTop = container.scrollHeight;
+    }
+
+    async function sendMsg() {
+      const input = document.getElementById('msg-input');
+      const content = input.value.trim();
+      if (!content || !activePartnerId) return;
+      input.value = '';
+      try {
+        const msg = await apiFetch('/chat', {
+          method: 'POST',
+          body: JSON.stringify({ receiverId: activePartnerId, itemId: itemId ? parseInt(itemId) : null, content })
+        });
+        appendMessage(msg, true);
+      } catch (e) { showToast('Error', e.message, 'error'); }
+    }
+
+    function appendMessage(msg, isMine) {
+      const container = document.getElementById('chat-messages');
+      const div = document.createElement('div');
+      div.style.cssText = `display:flex;flex-direction:column;align-items:${isMine?'flex-end':'flex-start'}`;
+      div.innerHTML = `
+        <div class="chat-bubble ${isMine?'sent':'received'}">${msg.content}</div>
+        <div class="chat-time" style="align-self:${isMine?'flex-end':'flex-start'}">${new Date(msg.createdAt).toLocaleTimeString()}</div>`;
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function connectWS() {
+      const sock = new SockJS('http://localhost:8080/ws');
+      stompClient = Stomp.over(sock);
+      stompClient.debug = null;
+      stompClient.connect({}, () => {
+        stompClient.subscribe(`/user/${me.id}/queue/messages`, (msg) => {
+          const data = JSON.parse(msg.body);
+          if (data.sender.id == activePartnerId) appendMessage(data, false);
+          else showToast('New Message', `${data.sender.name}: ${data.content}`, 'info');
+        });
+      });
+    }
+
+    loadPartners();
+    connectWS();
+  </script>
+</body>
+</html>

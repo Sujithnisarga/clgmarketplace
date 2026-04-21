@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Panel — CollegeMarket</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav class="navbar" id="navbar"></nav>
+  <div class="container" style="padding-top:2rem;padding-bottom:3rem">
+    <h2 style="font-size:1.6rem;font-weight:700;margin-bottom:1.5rem">🛡️ Admin Panel</h2>
+
+    <div id="stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:2rem"></div>
+
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('users', this)">Users</button>
+      <button class="tab" onclick="switchTab('items', this)">Items</button>
+    </div>
+
+    <div id="tab-users"></div>
+    <div id="tab-items" style="display:none"></div>
+  </div>
+
+  <script src="/js/app.js?v=2"></script>
+  <script>
+    if (!requireAuth()) {}
+    renderNavbar();
+
+    async function loadStats() {
+      try {
+        const s = await apiFetch('/admin/stats');
+        document.getElementById('stats').innerHTML = [
+          ['👥 Total Users', s.totalUsers],
+          ['📦 Total Items', s.totalItems],
+          ['🔨 Active Auctions', s.activeAuctions]
+        ].map(([label, val]) => `
+          <div class="card" style="text-align:center">
+            <div style="font-size:2rem;font-weight:700;color:var(--primary)">${val}</div>
+            <div style="color:var(--text-muted);font-size:0.9rem;margin-top:0.25rem">${label}</div>
+          </div>`).join('');
+      } catch (e) { showToast('Error', e.message, 'error'); }
+    }
+
+    async function loadUsers() {
+      try {
+        const users = await apiFetch('/admin/users');
+        document.getElementById('tab-users').innerHTML = `
+          <div style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse">
+              <thead><tr style="border-bottom:1px solid var(--border)">
+                <th style="text-align:left;padding:0.75rem;color:var(--text-muted);font-size:0.85rem">Name</th>
+                <th style="text-align:left;padding:0.75rem;color:var(--text-muted);font-size:0.85rem">Email</th>
+                <th style="text-align:left;padding:0.75rem;color:var(--text-muted);font-size:0.85rem">College</th>
+                <th style="text-align:left;padding:0.75rem;color:var(--text-muted);font-size:0.85rem">Role</th>
+                <th style="text-align:left;padding:0.75rem;color:var(--text-muted);font-size:0.85rem">Actions</th>
+              </tr></thead>
+              <tbody>${users.map(u => `
+                <tr style="border-bottom:1px solid var(--border)">
+                  <td style="padding:0.75rem">${u.name}</td>
+                  <td style="padding:0.75rem;color:var(--text-muted)">${u.email}</td>
+                  <td style="padding:0.75rem;color:var(--text-muted)">${u.college || '—'}</td>
+                  <td style="padding:0.75rem"><span class="badge ${u.role==='ADMIN'?'badge-auction':'badge-fixed'}">${u.role}</span></td>
+                  <td style="padding:0.75rem;display:flex;gap:0.5rem">
+                    <button class="btn btn-secondary btn-sm" onclick="toggleRole(${u.id}, '${u.role}')">${u.role==='ADMIN'?'Demote':'Promote'}</button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteUser(${u.id})">Delete</button>
+                  </td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>`;
+      } catch (e) { showToast('Error', e.message, 'error'); }
+    }
+
+    async function loadItems() {
+      try {
+        const items = await apiFetch('/admin/items');
+        document.getElementById('tab-items').innerHTML = `
+          <div class="grid-4">${items.map(item => `
+            <div class="card" style="padding:1rem">
+              ${item.images?.[0] ? `<img src="${item.images[0]}" style="width:100%;height:120px;object-fit:cover;border-radius:8px;margin-bottom:0.75rem">` : ''}
+              <div style="font-weight:600;font-size:0.9rem;margin-bottom:0.4rem">${item.title}</div>
+              <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.5rem">${item.seller.name} · <span class="badge badge-${item.status.toLowerCase()}">${item.status}</span></div>
+              <div style="display:flex;gap:0.5rem">
+                <a href="/pages/item.html?id=${item.id}" class="btn btn-secondary btn-sm">View</a>
+                <button class="btn btn-danger btn-sm" onclick="deleteItem(${item.id})">Delete</button>
+              </div>
+            </div>`).join('')}
+          </div>`;
+      } catch (e) { showToast('Error', e.message, 'error'); }
+    }
+
+    async function toggleRole(id, currentRole) {
+      const newRole = currentRole === 'ADMIN' ? 'USER' : 'ADMIN';
+      try {
+        await apiFetch(`/admin/users/${id}/role?role=${newRole}`, { method: 'PUT' });
+        showToast('Updated', `Role changed to ${newRole}`, 'success');
+        loadUsers();
+      } catch (e) { showToast('Error', e.message, 'error'); }
+    }
+
+    async function deleteUser(id) {
+      if (!confirm('Delete this user?')) return;
+      try {
+        await apiFetch(`/admin/users/${id}`, { method: 'DELETE' });
+        showToast('Deleted', 'User removed', 'success');
+        loadUsers();
+      } catch (e) { showToast('Error', e.message, 'error'); }
+    }
+
+    async function deleteItem(id) {
+      if (!confirm('Delete this item?')) return;
+      try {
+        await apiFetch(`/admin/items/${id}`, { method: 'DELETE' });
+        showToast('Deleted', 'Item removed', 'success');
+        loadItems();
+      } catch (e) { showToast('Error', e.message, 'error'); }
+    }
+
+    function switchTab(name, btn) {
+      document.getElementById('tab-users').style.display = name === 'users' ? 'block' : 'none';
+      document.getElementById('tab-items').style.display = name === 'items' ? 'block' : 'none';
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      btn.classList.add('active');
+      if (name === 'items') loadItems();
+    }
+
+    loadStats();
+    loadUsers();
+  </script>
+</body>
+</html>

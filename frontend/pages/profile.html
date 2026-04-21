@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Profile — CollegeMarket</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav class="navbar" id="navbar"></nav>
+  <div class="container" style="padding-top:2rem;padding-bottom:3rem">
+    <div id="content"><div class="loader"><div class="spinner"></div></div></div>
+  </div>
+
+  <!-- Review Modal -->
+  <div id="review-modal" class="modal-overlay" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <span class="modal-title">Leave a Review</span>
+        <button class="modal-close" onclick="document.getElementById('review-modal').style.display='none'">×</button>
+      </div>
+      <div id="review-error"></div>
+      <div class="form-group">
+        <label class="form-label">Rating</label>
+        <div id="star-picker" style="display:flex;gap:0.5rem;font-size:1.8rem;cursor:pointer">
+          ${[1,2,3,4,5].map(i => `<span onclick="setRating(${i})" id="star-${i}" style="color:var(--border)">★</span>`).join('')}
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Comment</label>
+        <textarea id="review-comment" class="form-control" placeholder="Share your experience..."></textarea>
+      </div>
+      <input type="hidden" id="review-item-id">
+      <button class="btn btn-primary" style="width:100%" onclick="submitReview()">Submit Review</button>
+    </div>
+  </div>
+
+  <script src="/js/app.js?v=2"></script>
+  <script>
+    renderNavbar();
+    const userId = new URLSearchParams(location.search).get('id');
+    let selectedRating = 0;
+    let profileData = null;
+
+    async function loadProfile() {
+      try {
+        profileData = await apiFetch(`/users/${userId}/profile`);
+        const { user, listings, reviews } = profileData;
+        const me = getUser();
+
+        document.getElementById('content').innerHTML = `
+          <div style="display:flex;align-items:flex-start;gap:2rem;margin-bottom:2.5rem;flex-wrap:wrap">
+            ${user.avatar
+              ? `<img src="http://localhost:8080${user.avatar}" style="width:100px;height:100px;border-radius:50%;object-fit:cover;border:3px solid var(--primary)">`
+              : `<div style="width:100px;height:100px;border-radius:50%;background:var(--primary);display:flex;align-items:center;justify-content:center;font-size:2.5rem;font-weight:700">${user.name[0]}</div>`}
+            <div>
+              <h2 style="font-size:1.8rem;font-weight:700">${user.name}</h2>
+              ${user.college ? `<div style="color:var(--text-muted);margin-top:0.25rem">🎓 ${user.college}</div>` : ''}
+              ${user.bio ? `<p style="color:var(--text-muted);margin-top:0.5rem;max-width:500px">${user.bio}</p>` : ''}
+              <div style="margin-top:0.75rem;display:flex;align-items:center;gap:1rem">
+                <span class="stars">${renderStars(user.rating)}</span>
+                <span style="color:var(--text-muted);font-size:0.9rem">${user.rating.toFixed(1)} (${user.ratingCount} reviews)</span>
+                <span style="color:var(--text-muted);font-size:0.9rem">Member since ${fmtDate(user.createdAt)}</span>
+              </div>
+            </div>
+            ${me && me.id != userId ? `<button class="btn btn-secondary" style="margin-left:auto" onclick="window.location.href='/pages/chat.html?userId=${userId}'">💬 Message</button>` : ''}
+          </div>
+
+          <h3 style="font-size:1.2rem;font-weight:700;margin-bottom:1rem">Listings (${listings.length})</h3>
+          ${listings.length
+            ? `<div class="grid-4" style="margin-bottom:2.5rem">${listings.map(renderItemCard).join('')}</div>`
+            : '<p style="color:var(--text-muted);margin-bottom:2.5rem">No listings yet</p>'}
+
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+            <h3 style="font-size:1.2rem;font-weight:700">Reviews (${reviews.length})</h3>
+          </div>
+          <div id="reviews-list">
+            ${reviews.length ? reviews.map(r => `
+              <div class="card" style="margin-bottom:0.75rem">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start">
+                  <div style="display:flex;align-items:center;gap:0.75rem">
+                    <div style="width:36px;height:36px;border-radius:50%;background:var(--primary);display:flex;align-items:center;justify-content:center;font-weight:700">${r.reviewer.name[0]}</div>
+                    <div>
+                      <div style="font-weight:600">${r.reviewer.name}</div>
+                      <div style="font-size:0.8rem;color:var(--text-muted)">${fmtDate(r.createdAt)}</div>
+                    </div>
+                  </div>
+                  <span class="stars">${renderStars(r.rating)}</span>
+                </div>
+                ${r.comment ? `<p style="color:var(--text-muted);margin-top:0.75rem;font-size:0.9rem">${r.comment}</p>` : ''}
+              </div>`).join('')
+            : '<p style="color:var(--text-muted)">No reviews yet</p>'}
+          </div>
+        `;
+        initCardTimers(listings);
+      } catch (e) {
+        document.getElementById('content').innerHTML = `<div class="alert alert-error">${e.message}</div>`;
+      }
+    }
+
+    function setRating(n) {
+      selectedRating = n;
+      for (let i = 1; i <= 5; i++) {
+        document.getElementById(`star-${i}`).style.color = i <= n ? 'var(--warning)' : 'var(--border)';
+      }
+    }
+
+    async function submitReview() {
+      if (!selectedRating) return showToast('Error', 'Please select a rating', 'error');
+      const itemId = document.getElementById('review-item-id').value;
+      const comment = document.getElementById('review-comment').value;
+      try {
+        const params = new URLSearchParams({ itemId, rating: selectedRating, comment });
+        await apiFetch(`/users/${userId}/review?${params}`, { method: 'POST' });
+        document.getElementById('review-modal').style.display = 'none';
+        showToast('Thanks!', 'Review submitted', 'success');
+        loadProfile();
+      } catch (e) {
+        document.getElementById('review-error').innerHTML = `<div class="alert alert-error">${e.message}</div>`;
+      }
+    }
+
+    loadProfile();
+  </script>
+</body>
+</html>

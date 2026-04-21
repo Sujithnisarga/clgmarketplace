@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Item — CollegeMarket</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav class="navbar" id="navbar"></nav>
+  <div class="container" style="padding-top:2rem;padding-bottom:3rem">
+    <div id="content"><div class="loader"><div class="spinner"></div></div></div>
+  </div>
+
+  <!-- Bid Modal -->
+  <div id="bid-modal" class="modal-overlay" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <span class="modal-title">Place a Bid</span>
+        <button class="modal-close" onclick="closeBidModal()">×</button>
+      </div>
+      <div id="bid-error"></div>
+      <div class="form-group">
+        <label class="form-label">Your Bid Amount (₹)</label>
+        <input type="number" id="bid-amount" class="form-control" step="0.01" placeholder="Enter amount">
+        <small style="color:var(--text-muted);margin-top:0.4rem;display:block" id="bid-hint"></small>
+      </div>
+      <button class="btn btn-primary" style="width:100%" onclick="submitBid()">Confirm Bid</button>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+  <script src="/js/app.js?v=2"></script>
+  <script>
+    renderNavbar();
+    const params = new URLSearchParams(location.search);
+    const itemId = params.get('id');
+    let item = null;
+    let stompClient = null;
+    let auctionEnded = false;
+
+    async function loadItem() {
+      try {
+        item = await apiFetch(`/items/${itemId}`);
+        renderItem();
+        loadBidHistory();
+        if (item.listingType === 'AUCTION' && item.status === 'ACTIVE') connectWS();
+      } catch (e) {
+        document.getElementById('content').innerHTML = `<div class="alert alert-error">${e.message}</div>`;
+      }
+    }
+
+    function renderItem() {
+      const user = getUser();
+      const isAuction = item.listingType === 'AUCTION';
+      const isOwner = user && item.seller.id == user.id;
+      const isActive = item.status === 'ACTIVE';
+      const isHighestBidder = user && item.highestBidder && item.highestBidder.id == user.id;
+
+      const images = item.images?.length
+        ? `<img src="http://localhost:8080${item.images[0]}" class="img-main" id="main-img" alt="${item.title}">
+           <div class="img-gallery">${item.images.map((img, i) =>
+             `<img src="http://localhost:8080${img}" class="${i===0?'active':''}" onclick="setMainImg('http://localhost:8080${img}', this)">`
+           ).join('')}</div>`
+        : `<div style="height:380px;background:var(--input-bg);border-radius:var(--radius);display:flex;align-items:center;justify-content:center;font-size:4rem">📦</div>`;
+
+      const statusBadge = `<span class="badge badge-${item.status.toLowerCase()}">${item.status}</span>`;
+
+      let priceSection = '';
+      if (isAuction) {
+        priceSection = `
+          <div style="background:var(--input-bg);border-radius:10px;padding:1.25rem;margin-bottom:1.25rem">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+              <div>
+                <div style="color:var(--text-muted);font-size:0.85rem">Current Bid</div>
+                <div class="price" id="current-bid" style="font-size:1.8rem">${fmt(item.currentBid)}</div>
+              </div>
+              <div style="text-align:right">
+                <div style="color:var(--text-muted);font-size:0.85rem">Time Left</div>
+                <div class="countdown" id="countdown">--:--:--</div>
+              </div>
+            </div>
+            ${item.highestBidder ? `
+              <div style="font-size:0.85rem;color:var(--text-muted)">
+                Highest bidder: <span id="highest-bidder" style="color:${isHighestBidder ? 'var(--success)' : 'var(--text)'}">
+                  ${isHighestBidder ? '🏆 You' : item.highestBidder.name}
+                </span>
+              </div>` : '<div style="font-size:0.85rem;color:var(--text-muted)">No bids yet — be the first!</div>'}
+            ${item.antiSnipe ? `<div style="font-size:0.8rem;color:var(--warning);margin-top:0.5rem">⚡ Anti-snipe: auction extends ${item.antiSnipeExtendMinutes}min if bid in last ${item.antiSnipeThresholdSeconds}s</div>` : ''}
+          </div>
+          ${isActive && !isOwner && isLoggedIn()
+            ? `<button class="btn btn-primary" style="width:100%;margin-bottom:0.75rem" id="bid-btn" onclick="openBidModal()">Place Bid</button>`
+            : isOwner ? '' : `<a href="/pages/login.html" class="btn btn-secondary" style="width:100%;display:block;text-align:center;margin-bottom:0.75rem">Login to Bid</a>`}
+          ${item.status === 'SOLD' ? `<div class="alert alert-success">🏆 Sold to ${item.highestBidder?.name || 'winner'} for ${fmt(item.currentBid)}</div>` : ''}
+          ${item.status === 'ENDED' ? `<div class="alert alert-info">Auction ended with no bids</div>` : ''}
+        `;
+      } else {
+        priceSection = `
+          <div class="price" style="font-size:2rem;margin-bottom:1.25rem">${fmt(item.price)}</div>
+          ${isActive && !isOwner && isLoggedIn()
+            ? `<button class="btn btn-success" style="width:100%;margin-bottom:0.75rem" onclick="buyNow()">Buy Now</button>`
+            : isOwner ? '' : `<a href="/pages/login.html" class="btn btn-secondary" style="width:100%;display:block;text-align:center;margin-bottom:0.75rem">Login to Buy</a>`}
+        `;
+      }
+
+      document.getElementById('content').innerHTML = `
+        <a href="/index.html" style="color:var(--text-muted);font-size:0.9rem;display:inline-block;margin-bottom:1.5rem">← Back to listings</a>
+        <div class="grid-2" style="gap:2.5rem;align-items:start">
+          <div>${images}</div>
+          <div>
+            <div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:0.75rem">
+              <span class="badge badge-${item.listingType.toLowerCase()}">${item.listingType === 'AUCTION' ? 'Auction' : 'Fixed Price'}</span>
+              ${statusBadge}
+              <span class="badge" style="background:rgba(148,163,184,0.1);color:var(--text-muted)">${item.category}</span>
+            </div>
+            <h1 style="font-size:1.8rem;font-weight:700;margin-bottom:0.75rem">${item.title}</h1>
+            <p style="color:var(--text-muted);line-height:1.7;margin-bottom:1.5rem">${item.description}</p>
+            ${priceSection}
+            <div style="border-top:1px solid var(--border);padding-top:1rem;margin-top:0.5rem">
+              <div style="display:flex;align-items:center;gap:0.75rem">
+                ${item.seller.avatar
+                  ? `<img src="http://localhost:8080${item.seller.avatar}" style="width:40px;height:40px;border-radius:50%;object-fit:cover">`
+                  : `<div style="width:40px;height:40px;border-radius:50%;background:var(--primary);display:flex;align-items:center;justify-content:center;font-weight:700">${item.seller.name[0]}</div>`}
+                <div>
+                  <a href="/pages/profile.html?id=${item.seller.id}" style="font-weight:600">${item.seller.name}</a>
+                  <div style="font-size:0.8rem;color:var(--text-muted)">${item.seller.college || ''} · <span class="stars">${renderStars(item.seller.rating)}</span></div>
+                </div>
+                ${isLoggedIn() && !isOwner ? `<button class="btn btn-secondary btn-sm" style="margin-left:auto" onclick="openChat(${item.seller.id})">💬 Chat</button>` : ''}
+              </div>
+            </div>
+            ${isOwner ? `
+              <div style="margin-top:1rem;display:flex;gap:0.75rem">
+                <a href="/pages/sell.html?edit=${item.id}" class="btn btn-secondary btn-sm">Edit</a>
+                <button class="btn btn-danger btn-sm" onclick="deleteItem()">Delete</button>
+              </div>` : ''}
+          </div>
+        </div>
+        <div style="margin-top:2.5rem">
+          <h3 style="font-size:1.2rem;font-weight:700;margin-bottom:1rem">Bid History</h3>
+          <div id="bid-history"><div class="loader"><div class="spinner"></div></div></div>
+        </div>
+      `;
+
+      if (isAuction && isActive && item.endTime) {
+        startCountdown(item.endTime, document.getElementById('countdown'), handleAuctionEnd);
+      }
+    }
+
+    function setMainImg(src, el) {
+      document.getElementById('main-img').src = src;
+      document.querySelectorAll('.img-gallery img').forEach(i => i.classList.remove('active'));
+      el.classList.add('active');
+    }
+
+    async function loadBidHistory() {
+      if (item.listingType !== 'AUCTION') { document.getElementById('bid-history').innerHTML = '<p style="color:var(--text-muted)">Fixed price listing</p>'; return; }
+      try {
+        const bids = await apiFetch(`/bids/${itemId}`);
+        const el = document.getElementById('bid-history');
+        if (!bids.length) { el.innerHTML = '<p style="color:var(--text-muted)">No bids yet</p>'; return; }
+        el.innerHTML = bids.map((b, i) => `
+          <div class="bid-item ${i === 0 ? 'bid-winner' : ''}">
+            <div style="display:flex;align-items:center;gap:0.75rem">
+              <div style="width:32px;height:32px;border-radius:50%;background:var(--primary);display:flex;align-items:center;justify-content:center;font-size:0.8rem;font-weight:700">${b.bidder.name[0]}</div>
+              <div>
+                <div style="font-weight:600;font-size:0.9rem">${b.bidder.name} ${i === 0 ? '🏆' : ''}</div>
+                <div style="font-size:0.75rem;color:var(--text-muted)">${new Date(b.createdAt).toLocaleString()}</div>
+              </div>
+            </div>
+            <div class="price">${fmt(b.amount)}</div>
+          </div>`).join('');
+      } catch (e) {}
+    }
+
+    function connectWS() {
+      const sock = new SockJS('http://localhost:8080/ws');
+      stompClient = Stomp.over(sock);
+      stompClient.debug = null;
+      stompClient.connect({}, () => {
+        stompClient.subscribe(`/topic/item/${itemId}`, (msg) => {
+          const data = JSON.parse(msg.body);
+          if (data.type === 'AUCTION_ENDED') {
+            handleAuctionEnd();
+            return;
+          }
+          // New bid update
+          if (data.currentBid) {
+            document.getElementById('current-bid').textContent = fmt(data.currentBid);
+            const user = getUser();
+            const isMe = user && data.highestBidder && data.highestBidder.id == user.id;
+            document.getElementById('highest-bidder').textContent = isMe ? '🏆 You' : data.highestBidder?.name || '';
+            document.getElementById('highest-bidder').style.color = isMe ? 'var(--success)' : 'var(--text)';
+            if (data.endTime) startCountdown(data.endTime, document.getElementById('countdown'), handleAuctionEnd);
+            loadBidHistory();
+          }
+        });
+
+        const user = getUser();
+        if (user) {
+          stompClient.subscribe(`/user/${user.id}/queue/outbid`, (msg) => {
+            const data = JSON.parse(msg.body);
+            showToast('Outbid!', `You were outbid on "${data.itemTitle}". New bid: ${fmt(data.newBid)}`, 'warning');
+          });
+        }
+      });
+    }
+
+    function handleAuctionEnd() {
+      auctionEnded = true;
+      const btn = document.getElementById('bid-btn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Auction Ended'; }
+      const cd = document.getElementById('countdown');
+      if (cd) { cd.textContent = 'ENDED'; cd.className = 'countdown ended'; }
+      showToast('Auction Ended', 'This auction has concluded', 'info');
+    }
+
+    function openBidModal() {
+      if (auctionEnded || item.status !== 'ACTIVE') return showToast('Error', 'Auction has ended', 'error');
+      document.getElementById('bid-hint').textContent = `Must be higher than ${fmt(item.currentBid)}`;
+      document.getElementById('bid-amount').value = '';
+      document.getElementById('bid-error').innerHTML = '';
+      document.getElementById('bid-modal').style.display = 'flex';
+    }
+
+    function closeBidModal() { document.getElementById('bid-modal').style.display = 'none'; }
+
+    async function submitBid() {
+      const amount = parseFloat(document.getElementById('bid-amount').value);
+      if (!amount) return;
+      try {
+        const res = await apiFetch(`/bids/${itemId}`, { method: 'POST', body: JSON.stringify({ amount }) });
+        item.currentBid = res.currentBid;
+        item.endTime = res.endTime;
+        closeBidModal();
+        showToast('Bid Placed!', `Your bid of ${fmt(amount)} was placed successfully`, 'success');
+      } catch (e) {
+        document.getElementById('bid-error').innerHTML = `<div class="alert alert-error">${e.message}</div>`;
+      }
+    }
+
+    async function buyNow() {
+      try {
+        const res = await apiFetch('/payments/checkout', { method: 'POST', body: JSON.stringify({ itemId: parseInt(itemId) }) });
+        window.location.href = res.url;
+      } catch (e) {
+        showToast('Error', e.message, 'error');
+      }
+    }
+
+    async function deleteItem() {
+      if (!confirm('Delete this listing?')) return;
+      try {
+        await apiFetch(`/items/${itemId}`, { method: 'DELETE' });
+        window.location.href = '/index.html';
+      } catch (e) { showToast('Error', e.message, 'error'); }
+    }
+
+    function openChat(sellerId) {
+      window.location.href = `/pages/chat.html?userId=${sellerId}&itemId=${itemId}`;
+    }
+
+    loadItem();
+  </script>
+</body>
+</html>

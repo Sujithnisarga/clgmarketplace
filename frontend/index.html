@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CollegeMarket — Buy, Sell & Bid</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav class="navbar" id="navbar"></nav>
+
+  <div style="background:linear-gradient(135deg,#e0f2fe 0%,#bae6fd 100%);padding:4rem 1.5rem;text-align:center;border-bottom:1px solid var(--border)">
+    <h1 style="font-size:2.5rem;font-weight:800;margin-bottom:1rem">
+      Your College <span style="color:var(--primary)">Marketplace</span>
+    </h1>
+    <p style="color:var(--text-muted);font-size:1.1rem;margin-bottom:2rem">Buy, sell, and bid on items from your campus community</p>
+    <div style="max-width:500px;margin:0 auto;display:flex;gap:0.75rem">
+      <input type="text" id="hero-search" class="form-control" placeholder="Search for books, electronics, clothing...">
+      <button class="btn btn-primary" onclick="doSearch()">Search</button>
+    </div>
+  </div>
+
+  <div class="container" style="padding-top:2rem;padding-bottom:3rem">
+    <!-- Filters -->
+    <div class="filters">
+      <select id="filter-category" class="form-control" onchange="loadItems()">
+        <option value="">All Categories</option>
+        <option value="BOOKS">Books</option>
+        <option value="ELECTRONICS">Electronics</option>
+        <option value="CLOTHING">Clothing</option>
+        <option value="FURNITURE">Furniture</option>
+        <option value="SPORTS">Sports</option>
+        <option value="OTHER">Other</option>
+      </select>
+      <select id="filter-type" class="form-control" onchange="loadItems()">
+        <option value="">All Types</option>
+        <option value="FIXED">Fixed Price</option>
+        <option value="AUCTION">Auction</option>
+      </select>
+      <input type="number" id="filter-min" class="form-control" placeholder="Min $" style="width:100px" onchange="loadItems()">
+      <input type="number" id="filter-max" class="form-control" placeholder="Max $" style="width:100px" onchange="loadItems()">
+      <select id="filter-sort" class="form-control" onchange="loadItems()">
+        <option value="">Newest</option>
+        <option value="ending_soon">Ending Soon</option>
+        <option value="price_asc">Price: Low to High</option>
+        <option value="price_desc">Price: High to Low</option>
+      </select>
+    </div>
+
+    <div class="section-header">
+      <h2 class="section-title">All Listings</h2>
+      <span id="item-count" style="color:var(--text-muted);font-size:0.9rem"></span>
+    </div>
+
+    <div id="items-grid" class="grid-4">
+      <div class="loader"><div class="spinner"></div></div>
+    </div>
+  </div>
+
+  <script src="/js/app.js?v=2"></script>
+  <script>
+    renderNavbar('home');
+
+    let searchQuery = '';
+
+    function doSearch() {
+      searchQuery = document.getElementById('hero-search').value;
+      loadItems();
+    }
+
+    document.getElementById('hero-search').addEventListener('keydown', e => {
+      if (e.key === 'Enter') doSearch();
+    });
+
+    async function loadItems() {
+      const grid = document.getElementById('items-grid');
+      grid.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+
+      const params = new URLSearchParams();
+      if (searchQuery) params.set('search', searchQuery);
+      const cat = document.getElementById('filter-category').value;
+      const type = document.getElementById('filter-type').value;
+      const min = document.getElementById('filter-min').value;
+      const max = document.getElementById('filter-max').value;
+      const sort = document.getElementById('filter-sort').value;
+      if (cat) params.set('category', cat);
+      if (type) params.set('listingType', type);
+      if (min) params.set('minPrice', min);
+      if (max) params.set('maxPrice', max);
+      if (sort) params.set('sort', sort);
+
+      try {
+        const items = await apiFetch('/items?' + params.toString());
+        document.getElementById('item-count').textContent = `${items.length} items`;
+        if (!items.length) {
+          grid.innerHTML = '<div class="empty-state"><div class="icon">🔍</div><p>No items found</p></div>';
+          return;
+        }
+        grid.innerHTML = items.map(renderItemCard).join('');
+        initCardTimers(items);
+      } catch (e) {
+        grid.innerHTML = `<div class="alert alert-error">${e.message}</div>`;
+      }
+    }
+
+    loadItems();
+  </script>
+</body>
+</html>

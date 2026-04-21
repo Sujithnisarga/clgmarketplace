@@ -1,0 +1,27 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "node-terminal",
+      "name": "backend",
+      "request": "launch",
+      "command": "cmd /k \"cd backend && call mvnw.cmd spring-boot:run\""
+    },
+    {
+      "type": "node-terminal",
+      "name": "frontend",
+      "request": "launch",
+      "command": "cmd /k \"cd frontend && npx http-server . -p 5500 --cors -o\""
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Run Full Stack",
+      "configurations": [
+        "backend",
+        "frontend"
+      ],
+      "stopAll": true
+    }
+  ]
+}

@@ -10,6 +10,6 @@ import java.util.List;
 public interface BidRepository extends JpaRepository<Bid, Long> {
     List<Bid> findByItemOrderByCreatedAtDesc(Item item);
 
-    @Query("SELECT DISTINCT b.item FROM Bid b WHERE b.bidder = :bidder ORDER BY b.item.createdAt DESC")
+    @Query("SELECT DISTINCT b.item FROM Bid b WHERE b.bidder = :bidder")
     List<Item> findDistinctItemsByBidder(User bidder);
 }

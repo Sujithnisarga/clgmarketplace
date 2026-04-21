@@ -115,6 +115,7 @@ public class ItemService {
         Item item = itemRepository.findById(itemId).orElseThrow(() -> new RuntimeException("Item not found"));
         if (!item.getSeller().getId().equals(user.getId())) throw new RuntimeException("Forbidden");
         if (item.getListingType() == Item.ListingType.AUCTION &&
+                item.getCurrentBid() != null && item.getStartingBid() != null &&
                 item.getCurrentBid().compareTo(item.getStartingBid()) > 0)
             throw new RuntimeException("Cannot edit auction with active bids");
 

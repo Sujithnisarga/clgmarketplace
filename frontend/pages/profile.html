@@ -63,7 +63,7 @@
                 <span style="color:var(--text-muted);font-size:0.9rem">Member since ${fmtDate(user.createdAt)}</span>
               </div>
             </div>
-            ${me && me.id != userId ? `<button class="btn btn-secondary" style="margin-left:auto" onclick="window.location.href='/pages/chat.html?userId=${userId}'">💬 Message</button>` : ''}
+            ${me && me.id != userId ? `` : ''}
           </div>
 
           <h3 style="font-size:1.2rem;font-weight:700;margin-bottom:1rem">Listings (${listings.length})</h3>

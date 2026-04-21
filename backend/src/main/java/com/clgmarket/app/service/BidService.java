@@ -44,8 +44,8 @@ public class BidService {
             throw new RuntimeException("Auction has expired");
         if (item.getSeller().getId().equals(bidder.getId()))
             throw new RuntimeException("Cannot bid on your own item");
-        if (amount.compareTo(item.getCurrentBid()) <= 0)
-            throw new RuntimeException("Bid must be higher than current bid of $" + item.getCurrentBid());
+        if (amount.compareTo(item.getCurrentBid() != null ? item.getCurrentBid() : BigDecimal.ZERO) <= 0)
+            throw new RuntimeException("Bid must be higher than current bid of ₹" + (item.getCurrentBid() != null ? item.getCurrentBid() : BigDecimal.ZERO));
 
         User previousHighestBidder = item.getHighestBidder();
 

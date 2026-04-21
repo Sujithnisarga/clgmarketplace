@@ -26,7 +26,7 @@ public class Item {
     private String description;
 
     @Builder.Default
-    @ElementCollection
+    @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "item_images", joinColumns = @JoinColumn(name = "item_id"))
     @Column(name = "image_url")
     private List<String> images = new ArrayList<>();

@@ -126,7 +126,7 @@
                   <a href="/pages/profile.html?id=${item.seller.id}" style="font-weight:600">${item.seller.name}</a>
                   <div style="font-size:0.8rem;color:var(--text-muted)">${item.seller.college || ''} · <span class="stars">${renderStars(item.seller.rating)}</span></div>
                 </div>
-                ${isLoggedIn() && !isOwner ? `<button class="btn btn-secondary btn-sm" style="margin-left:auto" onclick="openChat(${item.seller.id})">💬 Chat</button>` : ''}
+                ${isLoggedIn() && !isOwner ? `` : ''}
               </div>
             </div>
             ${isOwner ? `
@@ -254,10 +254,6 @@
         await apiFetch(`/items/${itemId}`, { method: 'DELETE' });
         window.location.href = '/index.html';
       } catch (e) { showToast('Error', e.message, 'error'); }
-    }
-
-    function openChat(sellerId) {
-      window.location.href = `/pages/chat.html?userId=${sellerId}&itemId=${itemId}`;
     }
 
     loadItem();
